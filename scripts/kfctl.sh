@@ -12,8 +12,15 @@ set -xe
 
 ENV_FILE="env.sh"
 SKIP_INIT_PROJECT=false
-CLUSTER_VERSION="1.10"
-GKE_API_VERSION="v1"
+
+# To enable GKE beta features we need to use the v1beta1 API.
+# https://cloud.google.com/kubernetes-engine/docs/reference/api-organization#beta
+# We currently use this by default so we can enable the new stackdriver
+# logging agents.
+GKE_API_VERSION="v1beta1"
+
+# Default GCP zone to deploy Kubeflow cluster if not specified
+GCP_DEFAULT_ZONE="us-east1-d"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" > /dev/null && pwd)"
 source "${DIR}/util.sh"
@@ -85,11 +92,6 @@ createEnv() {
 
       echo PROJECT_NUMBER=${PROJECT_NUMBER} >> ${ENV_FILE}
 
-      # "1.X": picks the highest valid patch+gke.N patch in the 1.X version
-      # https://cloud.google.com/kubernetes-engine/docs/reference/rest/v1/projects.zones.clusters
-      echo "Setting cluster version to ${CLUSTER_VERSION}"
-      echo CLUSTER_VERSION=${CLUSTER_VERSION} >> ${ENV_FILE}
-
       echo GKE_API_VERSION=${GKE_API_VERSION} >> ${ENV_FILE}
       ;;
     *)
@@ -133,11 +135,12 @@ ksApply() {
     ks env add default --namespace "${K8S_NAMESPACE}"
   fi
 
-  # Create all the core components
+  # Create all the components
   ks apply default -c ambassador
   ks apply default -c jupyter
   ks apply default -c centraldashboard
   ks apply default -c tf-job-operator
+  ks apply default -c pytorch-operator
   ks apply default -c metacontroller
   ks apply default -c spartakus
   ks apply default -c argo
@@ -212,9 +215,10 @@ parseArgs() {
     if [ -z "$ZONE" ]; then
       ZONE=$(gcloud config get-value compute/zone 2>/dev/null)
       if [ -z "$ZONE" ]; then
-        echo "GCP zone must be set either using --zone <ZONE>"
-        echo "or by setting a default zone in gcloud config"
-        exit 1
+        echo "Set default zone to ${GCP_DEFAULT_ZONE}"
+        echo "You can override this by setting a default zone in gcloud config"
+        echo "or using --zone <ZONE>"
+        ZONE=${GCP_DEFAULT_ZONE}
       fi
     fi
     # GCP Email for cert manager
@@ -225,8 +229,17 @@ parseArgs() {
         echo "or by setting a default account in gcloud config"
         exit 1
       fi
-      # Use iam-policy value for EMAIL if case-sensitive
+      
+      # See kubeflow/kubeflow#1936
+      # gcloud may not get the case correct for the email.
+      # The iam-policy respects the case so we check the IAM policy for the email
+      # and if found we use that value.
+      # This is an imperfect check because  users might be granted access through
+      # a group and will not be explicitly in the IAM policy.
+      # So we don't fail on error
+      set +e
       EM_LIST="$(gcloud projects get-iam-policy $PROJECT | grep -io $EMAIL)"
+      set -e
       for em in $EM_LIST; do
         if [ "$em" != "$EMAIL" ]; then
           EMAIL=$em
@@ -242,12 +255,6 @@ main() {
     DEPLOYMENT_NAME=${WHAT}
     parseArgs $*
 
-    mkdir -p ${DEPLOYMENT_NAME}
-    # Most commands expect to be executed from the app directory
-    cd ${DEPLOYMENT_NAME}
-    createEnv
-
-    source ${ENV_FILE}
     # TODO(jlewi): Should we default to directory name?
     # TODO(jlewi): This doesn't work if user doesn't provide name we will end up
     # interpreting parameters as the name. To fix this we need to check name doesn't start with --
@@ -256,11 +263,35 @@ main() {
       echo "usage: kfctl init <name>"
       exit 1
     fi
+    if [ ${#DEPLOYMENT_NAME} -gt 25 ]; then
+      echo "Name ${DEPLOYMENT_NAME} should not be longer than 25 characters" 
+      exit 1
+    fi
+    if [[ ${DEPLOYMENT_NAME} == *.*  ]]; then
+      echo "Name should not contain '.'"
+      exit 1
+    fi
     if [ -d ${DEPLOYMENT_NAME} ]; then
       echo "Directory ${DEPLOYMENT_NAME} already exists"
       exit 1
     fi
 
+    # Check that DEPLOYMENT_NAME is not a path e.g. /a/b/c
+    BASE_DEPLOYMENT_NAME=$(basename ${DEPLOYMENT_NAME})
+
+    if [ "${BASE_DEPLOYMENT_NAME}" != "${DEPLOYMENT_NAME}" ]; then
+      echo "usage: kfctl init <name>"
+      echo "<name> should be the name for the deployment; not a path"
+      exit 1
+    fi
+
+    mkdir -p ${DEPLOYMENT_NAME}
+    # Most commands expect to be executed from the app directory
+    cd ${DEPLOYMENT_NAME}
+    createEnv
+
+    source ${ENV_FILE}
+    
     if [ -z "${PLATFORM}" ]; then
       echo "--platform must be provided"
       echo "usage: kfctl init <PLATFORM>"

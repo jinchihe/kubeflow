@@ -126,19 +126,19 @@ def setup_kubeflow_ks_app(args, api_client):
     ["ks", "registry", "add", "kubeflow", kubeflow_registry], cwd=app_dir)
 
   # Install required packages
-  packages = ["kubeflow/core", "kubeflow/tf-serving", "kubeflow/tf-job", "kubeflow/pytorch-job", "kubeflow/argo"]
+  packages = ["kubeflow/common", "kubeflow/tf-serving", "kubeflow/tf-job", "kubeflow/pytorch-job", "kubeflow/argo"]
 
   # Instead of installing packages we edit the app.yaml file directly
   #for p in packages:
   # util.run(["ks", "pkg", "install", p], cwd=app_dir)
-  app_file = os.path.join(app_dir,"app.yaml")
+  app_file = os.path.join(app_dir, "app.yaml")
   with open(app_file) as f:
     app_yaml = yaml.load(f)
 
   libraries = {}
   for pkg in packages:
     pkg = pkg.split("/")[1]
-    libraries[pkg] = {'gitVersion':{'commitSha': 'fake', 'refSpec': 'fake'}, 'name': pkg, 'registry': "kubeflow"}
+    libraries[pkg] = {'gitVersion': {'commitSha': 'fake', 'refSpec': 'fake'}, 'name': pkg, 'registry': "kubeflow"}
   app_yaml['libraries'] = libraries
 
   with open(app_file, "w") as f:

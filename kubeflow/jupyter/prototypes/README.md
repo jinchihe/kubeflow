@@ -1,10 +1,20 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
+
+- [Goals](#goals)
+- [Design](#design)
+  - [User Interaction](#user-interaction)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 ## Goals
 
 - provide a k8 native mechanism to spawning jupyter notebooks for users
 
 - set a serviceAccountName within the spawning pod similar to jupyter-notebook
 
-- allow similar params as kubeflow/core/prototypes/jupyterhub.jsonnet, including PVCs but use the kubernetes PodTemplateSpec
+- allow similar params as kubeflow/common/prototypes/jupyterhub.jsonnet, including PVCs but use the kubernetes PodTemplateSpec
 
 
 ## Design
